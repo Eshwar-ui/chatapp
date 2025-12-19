@@ -1,3 +1,5 @@
+// App Lock functionality is temporarily disabled
+/*
 import 'package:chatapp/screens/chat_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
@@ -213,3 +215,4 @@ class _EnterPinScreenState extends State<EnterPinScreen> {
     );
   }
 }
+*/

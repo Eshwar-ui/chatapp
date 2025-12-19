@@ -173,13 +173,23 @@ class _ChatScreenState extends State<ChatScreen> {
         .where(FieldPath.documentId, isNotEqualTo: sender.uid)
         .get();
 
-    for (var doc in tokenSnapshot.docs) {
-      await _notificationService.sendNotification(
-        token: doc.data()['token'],
-        title: '${sender.email?.split('@')[0] ?? 'Someone'} sent a message',
-        body: messageText,
-      );
-    }
+    if (tokenSnapshot.docs.isEmpty) return;
+
+    // Collect all tokens
+    final tokens = tokenSnapshot.docs
+        .map((doc) => doc.data()['token'] as String?)
+        .where((token) => token != null && token.isNotEmpty)
+        .cast<String>()
+        .toList();
+
+    if (tokens.isEmpty) return;
+
+    // Send to all recipients at once (more efficient)
+    await _notificationService.sendNotificationsToMultiple(
+      tokens: tokens,
+      title: '${sender.email?.split('@')[0] ?? 'Someone'} sent a message',
+      body: messageText,
+    );
   }
 
   void _pickImage() {
