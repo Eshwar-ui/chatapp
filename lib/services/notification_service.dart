@@ -1,29 +1,28 @@
-import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
 import '../firebase_options.dart';
+import '../core/navigation/app_navigator.dart';
+import 'permission_service.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
+
   final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
+    region: 'asia-south1',
+  );
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
-
-  // Replace with your notification server URL
-  // For Android Emulator: 'http://10.0.2.2:3000'
-  // For iOS Simulator: 'http://localhost:3000'
-  // For Physical Device: 'http://YOUR_COMPUTER_IP:3000' (e.g., 'http://192.168.1.100:3000')
-  // For production: 'https://your-server.com'
-  //
-  // To find your computer's IP address:
-  // Windows: ipconfig (look for IPv4 Address)
-  // Mac/Linux: ifconfig or ip addr
-  static const String notificationServerUrl =
-      'http://10.0.2.2:3000'; // Android Emulator default
-  // static const String notificationServerUrl = 'http://192.168.1.XXX:3000'; // For physical device - UPDATE THIS!
 
   factory NotificationService() {
     return _instance;
@@ -32,14 +31,15 @@ class NotificationService {
   NotificationService._internal();
 
   Future<void> initialize() async {
-    // Request permission for notifications
     await _firebaseMessaging.requestPermission(
       alert: true,
       badge: true,
       sound: true,
     );
 
-    // Initialize local notifications
+    final permissionService = PermissionService();
+    await permissionService.requestNotificationPermission();
+
     const androidSettings = AndroidInitializationSettings(
       '@mipmap/ic_launcher',
     );
@@ -54,28 +54,42 @@ class NotificationService {
       iOS: iosSettings,
     );
 
-    await _localNotifications.initialize(initSettings);
+    await _localNotifications.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse: (response) {
+        _handleNotificationPayload(response.payload);
+      },
+    );
 
-    // Handle background messages
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-    // Handle messages when app is in foreground
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       showNotification(
         title: message.notification?.title ?? 'New Message',
         body: message.notification?.body ?? '',
+        payload: jsonEncode(message.data),
       );
     });
 
-    // Handle when app is opened from notification
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       debugPrint('Message opened app: ${message.data}');
+      _handleRemoteMessageTap(message);
+    });
+
+    final initialMessage = await _firebaseMessaging.getInitialMessage();
+    if (initialMessage != null) {
+      _handleRemoteMessageTap(initialMessage);
+    }
+
+    _firebaseMessaging.onTokenRefresh.listen((token) {
+      saveTokenForCurrentUser(token: token);
     });
   }
 
   Future<void> showNotification({
     required String title,
     required String body,
+    String? payload,
   }) async {
     const androidDetails = AndroidNotificationDetails(
       'chat_messages',
@@ -103,86 +117,91 @@ class NotificationService {
       title,
       body,
       details,
+      payload: payload,
     );
   }
 
-  // Get the FCM token for this device
-  Future<String?> getToken() async {
-    return await _firebaseMessaging.getToken();
-  }
-
-  // Send FCM notification to a specific token via backend API
-  Future<void> sendNotification({
-    required String token,
-    required String title,
-    required String body,
-    Map<String, String>? data,
-  }) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$notificationServerUrl/send-notification'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'token': token,
-          'title': title,
-          'body': body,
-          if (data != null) 'data': data,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        debugPrint('Notification sent successfully');
-      } else {
-        debugPrint('Failed to send notification: ${response.statusCode}');
-        debugPrint('Response: ${response.body}');
-      }
-    } catch (e) {
-      debugPrint('Error sending notification: $e');
-      // Fallback: You could still write to Firestore if server is down
-      // await _firestore.collection('fcm_messages').add({...});
+  void _handleRemoteMessageTap(RemoteMessage message) {
+    final chatRoomId = message.data['chatRoomId'];
+    if (chatRoomId is String && chatRoomId.isNotEmpty) {
+      AppNavigator.openChatRoom(chatRoomId);
     }
   }
 
-  // Send notifications to multiple tokens at once
-  Future<void> sendNotificationsToMultiple({
-    required List<String> tokens,
-    required String title,
+  void _handleNotificationPayload(String? payload) {
+    if (payload == null || payload.isEmpty) return;
+
+    try {
+      final data = jsonDecode(payload);
+      final chatRoomId = data is Map<String, dynamic>
+          ? data['chatRoomId']
+          : null;
+      if (chatRoomId is String && chatRoomId.isNotEmpty) {
+        AppNavigator.openChatRoom(chatRoomId);
+      }
+    } catch (e) {
+      debugPrint('Error handling notification payload: $e');
+    }
+  }
+
+  Future<String?> getToken() async {
+    return _firebaseMessaging.getToken();
+  }
+
+  Future<void> saveTokenForCurrentUser({String? token}) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final fcmToken = token ?? await getToken();
+      if (fcmToken == null || fcmToken.isEmpty) return;
+
+      await _firestore.collection('user_tokens').doc(user.uid).set({
+        'token': fcmToken,
+        'userId': user.uid,
+        'platform': defaultTargetPlatform.name,
+        'lastUpdated': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Error saving FCM token: $e');
+    }
+  }
+
+  Future<void> deleteTokenForCurrentUser() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    try {
+      await _firestore.collection('user_tokens').doc(user.uid).delete();
+    } catch (e) {
+      debugPrint('Error deleting FCM token: $e');
+    }
+  }
+
+  Future<void> sendChatNotification({
+    required String recipientUserId,
+    required String chatRoomId,
     required String body,
     Map<String, String>? data,
   }) async {
     try {
-      final response = await http.post(
-        Uri.parse('$notificationServerUrl/send-notifications'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'tokens': tokens,
-          'title': title,
-          'body': body,
-          if (data != null) 'data': data,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final result = jsonDecode(response.body);
-        debugPrint(
-          'Notifications sent: ${result['successCount']} success, ${result['failureCount']} failed',
-        );
-      } else {
-        debugPrint('Failed to send notifications: ${response.statusCode}');
-      }
+      final callable = _functions.httpsCallable('sendChatNotification');
+      await callable.call<Map<String, dynamic>>({
+        'recipientUserId': recipientUserId,
+        'chatRoomId': chatRoomId,
+        'body': body,
+        if (data != null) 'data': data,
+      });
     } catch (e) {
-      debugPrint('Error sending notifications: $e');
+      debugPrint('Error sending chat notification: $e');
     }
   }
 }
 
-// Handle background messages - MUST be top-level function
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // Initialize Firebase if not already initialized
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // Initialize local notifications for background
   final FlutterLocalNotificationsPlugin localNotifications =
       FlutterLocalNotificationsPlugin();
 
@@ -200,7 +219,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
   await localNotifications.initialize(initSettings);
 
-  // Show notification when app is in background or terminated
   if (message.notification != null) {
     const androidDetails = AndroidNotificationDetails(
       'chat_messages',
@@ -228,6 +246,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       message.notification?.title ?? 'New Message',
       message.notification?.body ?? '',
       details,
+      payload: jsonEncode(message.data),
     );
   }
 }

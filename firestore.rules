@@ -1,0 +1,116 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isChatParticipant(roomId) {
+      return signedIn()
+        && request.auth.uid in get(/databases/$(database)/documents/chatRooms/$(roomId)).data.participants;
+    }
+
+    function createsRoomForSelf() {
+      return signedIn()
+        && request.resource.data.participants is list
+        && request.resource.data.participants.size() == 2
+        && request.auth.uid in request.resource.data.participants;
+    }
+
+    function onlyChanges(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    function changedReactionForSelfOnly() {
+      return onlyChanges(['reactions'])
+        && request.resource.data.reactions is map
+        && resource.data.reactions is map
+        && request.resource.data.reactions.diff(resource.data.reactions).affectedKeys().hasOnly([request.auth.uid]);
+    }
+
+    function deletedForSelfOnly() {
+      return onlyChanges(['deletedFor'])
+        && request.resource.data.deletedFor is list
+        && resource.data.deletedFor is list
+        && request.resource.data.deletedFor.hasAll(resource.data.deletedFor)
+        && request.auth.uid in request.resource.data.deletedFor;
+    }
+
+    function editsOwnMessageOnly() {
+      return resource.data.userId == request.auth.uid
+        && onlyChanges(['text', 'isEdited', 'editedAt'])
+        && request.resource.data.isEdited == true;
+    }
+
+    function deletesOwnMessageForEveryoneOnly() {
+      return resource.data.userId == request.auth.uid
+        && onlyChanges(['deletedForEveryone', 'deletedAt'])
+        && request.resource.data.deletedForEveryone == true;
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['email']);
+      allow delete: if false;
+    }
+
+    match /user_settings/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    match /user_tokens/{userId} {
+      allow read: if isOwner(userId);
+      allow create, update, delete: if isOwner(userId);
+    }
+
+    match /user_reports/{reportId} {
+      allow read: if false;
+      allow create: if signedIn()
+        && request.resource.data.reporterUserId == request.auth.uid
+        && request.resource.data.reportedUserId is string
+        && request.resource.data.chatRoomId is string
+        && request.resource.data.status == 'open';
+      allow update, delete: if false;
+    }
+
+    match /chatRooms/{roomId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.participants;
+      allow create: if createsRoomForSelf();
+      allow update: if signedIn()
+        && request.auth.uid in resource.data.participants
+        && request.resource.data.participants == resource.data.participants
+        && onlyChanges([
+          'lastMessage',
+          'lastMessageId',
+          'lastMessageTime',
+          'lastMessageSenderId',
+          'unreadCount',
+          'typing',
+          'pinnedBy'
+        ]);
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isChatParticipant(roomId);
+        allow create: if isChatParticipant(roomId)
+          && request.resource.data.userId == request.auth.uid;
+        allow update: if isChatParticipant(roomId)
+          && (
+            onlyChanges(['readBy', 'status'])
+            || changedReactionForSelfOnly()
+            || deletedForSelfOnly()
+            || editsOwnMessageOnly()
+            || deletesOwnMessageForEveryoneOnly()
+          );
+        allow delete: if false;
+      }
+    }
+  }
+}
