@@ -10,7 +10,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import '../models/user_model.dart';
 import '../models/chat_room_model.dart';
-import '../services/notification_service.dart';
 import '../services/permission_service.dart';
 import '../services/settings_service.dart';
 import '../utils/chat_message_utils.dart';
@@ -38,7 +37,6 @@ class _IndividualChatScreenState extends State<IndividualChatScreen> {
   final _firestore = FirebaseFirestore.instance;
   final _auth = FirebaseAuth.instance;
   final _storage = FirebaseStorage.instance;
-  final _notificationService = NotificationService();
   final _permissionService = PermissionService();
   final _settingsService = SettingsService();
   final _scrollController = ScrollController();
@@ -247,9 +245,6 @@ class _IndividualChatScreenState extends State<IndividualChatScreen> {
       }
       await _chatRoomRef.update(chatRoomUpdate);
 
-      if (_otherUserId != null) {
-        await _sendNotificationToUser(messageText, user);
-      }
     } catch (e) {
       _messageController.text = messageText;
       setState(() => _replyDraft = replyDraft);
@@ -294,22 +289,6 @@ class _IndividualChatScreenState extends State<IndividualChatScreen> {
       _editingMessageId = null;
       _editingOriginalText = null;
     });
-  }
-
-  Future<void> _sendNotificationToUser(String messageText, User sender) async {
-    try {
-      final recipientUserId = _otherUserId;
-      if (recipientUserId == null) return;
-
-      await _notificationService.sendChatNotification(
-        recipientUserId: recipientUserId,
-        chatRoomId: widget.chatRoomId,
-        body: messageText,
-        data: {'senderUserId': sender.uid},
-      );
-    } catch (e) {
-      debugPrint('Error sending notification: $e');
-    }
   }
 
   void _startReply(String messageId, Map<String, dynamic> data) {
@@ -757,12 +736,16 @@ class _IndividualChatScreenState extends State<IndividualChatScreen> {
       if (!hasPermission) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Permission is required to select or capture images',
+            SnackBar(
+              content: const Text(
+                'Permission is required to select or capture images.',
               ),
               behavior: SnackBarBehavior.floating,
               duration: Duration(seconds: 3),
+              action: SnackBarAction(
+                label: 'Settings',
+                onPressed: _permissionService.openSettings,
+              ),
             ),
           );
         }
@@ -863,9 +846,6 @@ class _IndividualChatScreenState extends State<IndividualChatScreen> {
         }
         await _chatRoomRef.update(chatRoomUpdate);
 
-        if (_otherUserId != null) {
-          await _sendNotificationToUser('Image', user);
-        }
       }
     } catch (e) {
       if (mounted) setState(() => _imageUploadProgress = null);

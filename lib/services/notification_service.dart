@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -18,9 +17,6 @@ class NotificationService {
   final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
-    region: 'asia-south1',
-  );
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
 
@@ -178,24 +174,6 @@ class NotificationService {
     }
   }
 
-  Future<void> sendChatNotification({
-    required String recipientUserId,
-    required String chatRoomId,
-    required String body,
-    Map<String, String>? data,
-  }) async {
-    try {
-      final callable = _functions.httpsCallable('sendChatNotification');
-      await callable.call<Map<String, dynamic>>({
-        'recipientUserId': recipientUserId,
-        'chatRoomId': chatRoomId,
-        'body': body,
-        if (data != null) 'data': data,
-      });
-    } catch (e) {
-      debugPrint('Error sending chat notification: $e');
-    }
-  }
 }
 
 @pragma('vm:entry-point')

@@ -82,10 +82,14 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       if (!hasPermission) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Permission is required to select images'),
+            SnackBar(
+              content: const Text('Permission is required to select images.'),
               behavior: SnackBarBehavior.floating,
               duration: Duration(seconds: 3),
+              action: SnackBarAction(
+                label: 'Settings',
+                onPressed: _permissionService.openSettings,
+              ),
             ),
           );
         }

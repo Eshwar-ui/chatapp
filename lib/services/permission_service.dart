@@ -109,6 +109,10 @@ class PermissionService {
     return results;
   }
 
+  Future<bool> openSettings() {
+    return openAppSettings();
+  }
+
   /// Show permission explanation dialog
   Future<bool> showPermissionDialog(
     BuildContext context, {

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
 import '../services/permission_service.dart';
 import '../core/design/brutalist_colors.dart';
 
@@ -29,6 +28,7 @@ class _PermissionScreenState extends State<PermissionScreen> {
 
   Future<void> _checkPermissions() async {
     final statuses = await _permissionService.checkAllPermissions();
+    if (!mounted) return;
     setState(() {
       _permissions['notifications'] = statuses['notifications'] ?? false;
       _permissions['media'] = statuses['media'] ?? false;
@@ -48,6 +48,7 @@ class _PermissionScreenState extends State<PermissionScreen> {
       granted = await _permissionService.requestCameraPermission();
     }
 
+    if (!mounted) return;
     setState(() {
       _permissions[permissionType] = granted;
       _isLoading = false;
@@ -73,7 +74,7 @@ class _PermissionScreenState extends State<PermissionScreen> {
             behavior: SnackBarBehavior.floating,
             action: SnackBarAction(
               label: 'Open Settings',
-              onPressed: () => openAppSettings(),
+              onPressed: _permissionService.openSettings,
             ),
           ),
         );
@@ -88,6 +89,7 @@ class _PermissionScreenState extends State<PermissionScreen> {
 
     final results = await _permissionService.requestAllPermissions();
 
+    if (!mounted) return;
     setState(() {
       _permissions['notifications'] = results['notifications'] ?? false;
       _permissions['media'] = results['media'] ?? false;
