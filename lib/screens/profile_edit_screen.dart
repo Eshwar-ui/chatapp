@@ -137,6 +137,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
         if (compressedBytes != null) {
           final imageRef = _storage.ref('users/${user.uid}/profile.png');
+          debugPrint(
+            'Uploading profile image to gs://${imageRef.bucket}/${imageRef.fullPath}',
+          );
           await imageRef.putData(
             compressedBytes,
             SettableMetadata(contentType: 'image/png'),
@@ -188,6 +191,22 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           context,
           true,
         ); // Return true to indicate profile was updated
+      }
+    } on FirebaseException catch (e) {
+      setState(() => _isLoading = false);
+      debugPrint(
+        'Firebase Storage profile upload failed: code=${e.code}, '
+        'message=${e.message}, bucket=${_storage.bucket}, userId=${user.uid}',
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Error saving: ${e.code} ${e.message ?? ''}'.trim(),
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } catch (e) {
       setState(() => _isLoading = false);

@@ -21,6 +21,6 @@ class DefaultFirebaseOptions {
         '1:157971224429:android:545f3d7494a8ec48326c64', // Replace with your App ID
     messagingSenderId: '157971224429', // Replace with your Sender ID
     projectId: 'my-chat-app-7b3a3', // Your project ID from the error message
-    storageBucket: 'my-chat-app-7b3a3.appspot.com', // Your storage bucket
+    storageBucket: 'my-chat-app-7b3a3.firebasestorage.app',
   );
 }

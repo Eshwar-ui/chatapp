@@ -795,6 +795,9 @@ class _IndividualChatScreenState extends State<IndividualChatScreen> {
         final imagePath =
             'chatRooms/${widget.chatRoomId}/messages/${user.uid}/${DateTime.now().millisecondsSinceEpoch}.png';
         final imageRef = _storage.ref(imagePath);
+        debugPrint(
+          'Uploading chat image to gs://${imageRef.bucket}/${imageRef.fullPath}',
+        );
         setState(() => _imageUploadProgress = 0);
         final uploadTask = imageRef.putData(
           compressedBytes,
@@ -846,6 +849,23 @@ class _IndividualChatScreenState extends State<IndividualChatScreen> {
         }
         await _chatRoomRef.update(chatRoomUpdate);
 
+      }
+    } on FirebaseException catch (e) {
+      debugPrint(
+        'Firebase Storage upload failed: code=${e.code}, '
+        'message=${e.message}, bucket=${_storage.bucket}, '
+        'chatRoomId=${widget.chatRoomId}, userId=${_auth.currentUser?.uid}',
+      );
+      if (mounted) setState(() => _imageUploadProgress = null);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Failed to send image: ${e.code} ${e.message ?? ''}'.trim(),
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) setState(() => _imageUploadProgress = null);
